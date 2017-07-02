@@ -73,6 +73,15 @@ class ReferenceUtil {
       std::pair<int64, int64> lhs_dilation,
       std::pair<int64, int64> rhs_dilation, ConvolutionDimensionNumbers dnums);
 
+  // Returns the result of a separable  convolution with the given parameters.
+  // kernel_stride and padding applies to the depthwise convolution during
+  // the separable convolution. pointwise_weights.depth() must be equal to
+  // input.depth() * depthwise_weights.planes().
+  static std::unique_ptr<Array4D<float>> SeparableConvArray4D(
+      const Array4D<float>& input, const Array4D<float>& depthwise_weights,
+      const Array4D<float>& pointwise_weights,
+      std::pair<int64, int64> kernel_stride, Padding padding);
+
   // Returns the result of reducing a matrix to a column vector. init is the
   // initial value for the reduce operation, and reduce_function is the function
   // to apply for each reduction step.
@@ -111,6 +120,11 @@ class ReferenceUtil {
       tensorflow::gtl::ArraySlice<int64> dims,
       std::function<float(float, float)> reduce_function);
 
+  // Broadcast 1D dimension to 4D, from the dimension `broadcast_from_dim`.
+  static std::unique_ptr<Array4D<float>> Broadcast1DTo4D(
+      const std::vector<float>& array, const std::vector<int64>& bounds,
+      int64 broadcast_from_dim);
+
   // Returns the result of reducing the 3D array to a 2D array, reducing away
   // the dimensions specified in dims.
   static std::unique_ptr<Array2D<float>> Reduce3DTo2D(
@@ -135,11 +149,43 @@ class ReferenceUtil {
   static int64 WindowCount(int64 unpadded_width, int64 window_len, int64 stride,
                            Padding padding);
 
-  // Performs a 4D window reduction with Add as the function to apply.
+  // Windowed reductions with Add as the function to apply.
+  static std::unique_ptr<std::vector<float>> ReduceWindow1DAdd(
+      const tensorflow::gtl::ArraySlice<float>& operand, float init,
+      const tensorflow::gtl::ArraySlice<int64>& window,
+      const tensorflow::gtl::ArraySlice<int64>& stride, Padding padding);
+  static std::unique_ptr<Array2D<float>> ReduceWindow2DAdd(
+      const Array2D<float>& operand, float init,
+      const tensorflow::gtl::ArraySlice<int64>& window,
+      const tensorflow::gtl::ArraySlice<int64>& stride, Padding padding);
   static std::unique_ptr<Array4D<float>> ReduceWindow4DAdd(
       const Array4D<float>& operand, float init,
       const tensorflow::gtl::ArraySlice<int64>& window,
       const tensorflow::gtl::ArraySlice<int64>& stride, Padding padding);
+
+  // Windowed reductions with a generic reduce function.
+  static std::unique_ptr<std::vector<float>> ReduceWindow1DGeneric(
+      const tensorflow::gtl::ArraySlice<float>& operand, float init,
+      const std::function<float(float, float)>& reduce_func,
+      const tensorflow::gtl::ArraySlice<int64>& window,
+      const tensorflow::gtl::ArraySlice<int64>& stride, Padding padding);
+  static std::unique_ptr<Array4D<float>> ReduceWindow4DGeneric(
+      const Array4D<float>& operand, float init,
+      const std::function<float(float, float)>& reduce_func,
+      const tensorflow::gtl::ArraySlice<int64>& window,
+      const tensorflow::gtl::ArraySlice<int64>& stride, Padding padding);
+  static std::unique_ptr<Array4D<float>> ReduceWindow4DGeneric(
+      const Array4D<float>& operand, float init,
+      const std::function<float(float, float)>& reduce_func,
+      const tensorflow::gtl::ArraySlice<int64>& window,
+      const tensorflow::gtl::ArraySlice<int64>& stride,
+      const tensorflow::gtl::ArraySlice<std::pair<int64, int64>>& padding);
+
+  // Batch normalize data.
+  static std::unique_ptr<Array4D<float>> BatchNorm4D(
+      const Array4D<float>& input, const Array4D<float>& mean,
+      const Array4D<float>& var, const Array4D<float>& scale,
+      const Array4D<float>& offset, float epsilon);
 
   // Performs select and scatter with Greater Than or equal as the select, plus
   // as the scatter, and Same Padding.
@@ -368,12 +414,91 @@ class ReferenceUtil {
     return result;
   }
 
+  // Applies map_function to each pair of elements in the input lhs and rhs
+  // (4D array) and returns the result.
+  template <typename F>
+  static std::unique_ptr<Array4D<float>> MapArray4D(const Array4D<float>& lhs,
+                                                    const Array4D<float>& rhs,
+                                                    F&& map_function) {
+    return MapWithIndexArray4D(
+        lhs, rhs, [&](float lhs, float rhs, int64, int64, int64, int64) {
+          return map_function(lhs, rhs);
+        });
+  }
+
+  // Applies map_function to each pair of element in lhs and rhs (4D array) and
+  // returns the result.
+  // (plane, depth, height, width) index of each element is also provided as
+  // arguments to map_function.
+  template <typename F>
+  static std::unique_ptr<Array4D<float>> MapWithIndexArray4D(
+      const Array4D<float>& lhs, const Array4D<float>& rhs, F&& map_function) {
+    auto result = MakeUnique<Array4D<float>>(lhs.planes(), lhs.depth(),
+                                             lhs.height(), lhs.width());
+    for (int64 plane = 0; plane < lhs.planes(); ++plane) {
+      for (int64 depth = 0; depth < lhs.depth(); ++depth) {
+        for (int64 height = 0; height < lhs.height(); ++height) {
+          for (int64 width = 0; width < lhs.width(); ++width) {
+            (*result)(plane, depth, height, width) = map_function(
+                lhs(plane, depth, height, width),
+                rhs(plane, depth, height, width), plane, depth, height, width);
+          }
+        }
+      }
+    }
+    return result;
+  }
+
   // Returns the result of a 2D pad on an input matrix.
   static std::unique_ptr<Array2D<float>> PadArray2D(
       const Array2D<float>& operand, const PaddingConfig& padding,
       const float pad);
 
+  // Returns the result of a 4D pad on an input array.
+  static Array4D<float> PadArray4D(const Array4D<float>& operand,
+                                   const PaddingConfig& padding,
+                                   const float pad);
+
+  // ApplyElementwise2D(f, x, y, ...) returns the Array2D formed by running
+  // f(x[i], y[i], ...) for each array element in the Array2Ds x, y, ....
+  //
+  // The given arrays must have the same size and element type, and the return
+  // type of f must be implicitly convertible to the arrays' element type.
+  //
+  // Example usage:
+  //
+  //   Array2D<float> x, y, z = ...;
+  //   std::unique_ptr<Array2D> result = ReferenceUtil::ApplyElementwise2D(
+  //     [](float a, float b, float c) { return a * b + c; }, x, y, z);
+  //
+  template <typename F, typename T1, typename... Ts>
+  static std::unique_ptr<Array2D<T1>> ApplyElementwise2D(
+      F&& f, const Array2D<T1>& array1, const Array2D<Ts>&... arrays) {
+    AssertSameSize2D(array1, arrays...);
+    auto result = MakeUnique<Array2D<T1>>(array1.n1(), array1.n2());
+    for (int64 i = 0; i < array1.n1(); ++i) {
+      for (int64 j = 0; j < array1.n2(); ++j) {
+        (*result)(i, j) = f(array1(i, j), arrays(i, j)...);
+      }
+    }
+    return result;
+  }
+
  private:
+  template <typename T1, typename T2, typename... Ts>
+  static void AssertSameSize2D(const Array2D<T1>& array1,
+                               const Array2D<T2>& array2,
+                               const Array2D<Ts>&... arrays) {
+    static_assert(std::is_same<T1, T2>::value, "Args must be same type.");
+    CHECK_EQ(array1.n1(), array2.n1());
+    CHECK_EQ(array1.n2(), array2.n2());
+    AssertSameSize2D(array2, arrays...);
+  }
+
+  // Recursive base case for AssertSameSize2D.
+  template <typename Array1>
+  static void AssertSameSize2D(const Array1& array1) {}
+
   TF_DISALLOW_COPY_AND_ASSIGN(ReferenceUtil);
 };
 

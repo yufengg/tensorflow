@@ -27,13 +27,25 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import sparse_tensor
 from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import check_ops
 from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import sparse_ops
 
 
-def remove_squeezable_dimensions(labels, predictions, name=None):
-  """Squeeze last dim if ranks of `predictions` and `labels` differ by 1.
+def remove_squeezable_dimensions(
+    labels, predictions, expected_rank_diff=0, name=None):
+  """Squeeze last dim if ranks differ from expected by exactly 1.
+
+  In the common case where we expect shapes to match, `expected_rank_diff`
+  defaults to 0, and we squeeze the last dimension of the larger rank if they
+  differ by 1.
+
+  But, for example, if `labels` contains class IDs and `predictions` contains 1
+  probability per class, we expect `predictions` to have 1 more dimension than
+  `labels`, so `expected_rank_diff` would be 1. In this case, we'd squeeze
+  `labels` if `rank(predictions) - rank(labels) == 0`, and
+  `predictions` if `rank(predictions) - rank(labels) == 2`.
 
   This will use static shape if available. Otherwise, it will add graph
   operations, which could result in a performance hit.
@@ -41,6 +53,7 @@ def remove_squeezable_dimensions(labels, predictions, name=None):
   Args:
     labels: Label values, a `Tensor` whose dimensions match `predictions`.
     predictions: Predicted values, a `Tensor` of arbitrary dimensions.
+    expected_rank_diff: Expected result of `rank(predictions) - rank(labels)`.
     name: Name of the op.
 
   Returns:
@@ -57,10 +70,10 @@ def remove_squeezable_dimensions(labels, predictions, name=None):
     if (labels_rank is not None) and (predictions_rank is not None):
       # Use static rank.
       rank_diff = predictions_rank - labels_rank
-      if rank_diff == -1:
-        labels = array_ops.squeeze(labels, [-1])
-      elif rank_diff == 1:
+      if rank_diff == expected_rank_diff + 1:
         predictions = array_ops.squeeze(predictions, [-1])
+      elif rank_diff == expected_rank_diff - 1:
+        labels = array_ops.squeeze(labels, [-1])
       return labels, predictions
 
     # Use dynamic rank.
@@ -68,13 +81,13 @@ def remove_squeezable_dimensions(labels, predictions, name=None):
     if (predictions_rank is None) or (
         predictions_shape.dims[-1].is_compatible_with(1)):
       predictions = control_flow_ops.cond(
-          math_ops.equal(1, rank_diff),
+          math_ops.equal(expected_rank_diff + 1, rank_diff),
           lambda: array_ops.squeeze(predictions, [-1]),
           lambda: predictions)
     if (labels_rank is None) or (
         labels_shape.dims[-1].is_compatible_with(1)):
       labels = control_flow_ops.cond(
-          math_ops.equal(-1, rank_diff),
+          math_ops.equal(expected_rank_diff - 1, rank_diff),
           lambda: array_ops.squeeze(labels, [-1]),
           lambda: labels)
     return labels, predictions
@@ -143,9 +156,30 @@ def confusion_matrix(labels, predictions, num_classes=None, dtype=dtypes.int32,
     predictions = math_ops.cast(predictions, dtypes.int64)
     labels = math_ops.cast(labels, dtypes.int64)
 
+    # Sanity checks - underflow or overflow can cause memory corruption.
+    labels = control_flow_ops.with_dependencies(
+        [check_ops.assert_non_negative(
+            labels, message='`labels` contains negative values')],
+        labels)
+    predictions = control_flow_ops.with_dependencies(
+        [check_ops.assert_non_negative(
+            predictions, message='`predictions` contains negative values')],
+        predictions)
+
     if num_classes is None:
       num_classes = math_ops.maximum(math_ops.reduce_max(predictions),
                                      math_ops.reduce_max(labels)) + 1
+    else:
+      num_classes_int64 = math_ops.cast(num_classes, dtypes.int64)
+      labels = control_flow_ops.with_dependencies(
+          [check_ops.assert_less(
+              labels, num_classes_int64, message='`labels` out of bound')],
+          labels)
+      predictions = control_flow_ops.with_dependencies(
+          [check_ops.assert_less(
+              predictions, num_classes_int64,
+              message='`predictions` out of bound')],
+          predictions)
 
     if weights is not None:
       predictions.get_shape().assert_is_compatible_with(weights.get_shape())

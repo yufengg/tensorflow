@@ -27,7 +27,7 @@ limitations under the License.
 #include "external/llvm/include/llvm/IR/Module.h"
 #include "external/llvm/include/llvm/IR/Value.h"
 #include "external/llvm/include/llvm/Support/raw_ostream.h"
-#include "tensorflow/compiler/xla/service/buffer_assignment.h"
+#include "tensorflow/compiler/xla/literal_util.h"
 #include "tensorflow/compiler/xla/types.h"
 #include "tensorflow/compiler/xla/xla_data.pb.h"
 #include "tensorflow/core/lib/core/stringpiece.h"
@@ -129,7 +129,7 @@ llvm::AllocaInst* EmitAllocaAtFunctionEntryWithCount(
     llvm::Type* type, llvm::Value* element_count, tensorflow::StringPiece name,
     llvm::IRBuilder<>* ir_builder, int alignment = 0);
 
-// Creates a basic block with the same context and funtion as for the
+// Creates a basic block with the same context and function as for the
 // builder. Inserts at the end of the function if insert_before is
 // null.
 llvm::BasicBlock* CreateBasicBlock(llvm::BasicBlock* insert_before,
@@ -216,11 +216,14 @@ llvm::Value* CreateRor(llvm::Value* rotand, llvm::Value* rotor,
 // Returns the number of bytes within the shape.
 int64 ByteSizeOf(const Shape& shape, const llvm::DataLayout& data_layout);
 
-// Set values in the given FastMathFlags struct according to our XLA flags.
-void SetFastMathFlags(llvm::FastMathFlags* flags);
+// Gets an llvm::FastMathFlags that reflects the settings in the given
+// module config.
+llvm::FastMathFlags GetFastMathFlags(bool fast_math_enabled);
 
-// Set values in the given TargetOptions struct according to our XLA flags.
-void SetTargetOptions(llvm::TargetOptions* options);
+// Sets values in the given TargetOptions struct according to the given
+// compilation options.
+void SetTargetOptions(bool fast_math_enabled,
+                      llvm::TargetOptions* target_options);
 
 }  // namespace llvm_ir
 }  // namespace xla

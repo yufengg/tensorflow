@@ -14,10 +14,10 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/compiler/tf2xla/shape_util.h"
-#include "tensorflow/compiler/tf2xla/xla_compilation_device.h"
 #include "tensorflow/compiler/tf2xla/xla_context.h"
 #include "tensorflow/compiler/tf2xla/xla_helpers.h"
 #include "tensorflow/compiler/tf2xla/xla_op_kernel.h"
+#include "tensorflow/compiler/tf2xla/xla_op_registry.h"
 #include "tensorflow/core/framework/kernel_def_builder.h"
 
 namespace tensorflow {
@@ -66,10 +66,10 @@ class GatherOp : public XlaOpKernel {
     std::vector<xla::ComputationDataHandle> args;
     args.push_back(tc.GetOrCreateRuntimeContextParameter());
     args.push_back(b.ConstantLiteral(
-        *xla::LiteralUtil::CreateR0<int64>(indices_shape.num_elements())));
+        *xla::Literal::CreateR0<int64>(indices_shape.num_elements())));
     args.push_back(b.ConstantLiteral(
-        *xla::LiteralUtil::CreateR0<int64>(params_shape.dim_size(0))));
-    args.push_back(b.ConstantLiteral(*xla::LiteralUtil::CreateR0<int64>(
+        *xla::Literal::CreateR0<int64>(params_shape.dim_size(0))));
+    args.push_back(b.ConstantLiteral(*xla::Literal::CreateR0<int64>(
         params_shape.num_elements() / params_shape.dim_size(0))));
     args.push_back(ctx->Input(0));
     args.push_back(ctx->Input(1));
@@ -93,12 +93,10 @@ class GatherOp : public XlaOpKernel {
   TF_DISALLOW_COPY_AND_ASSIGN(GatherOp);
 };
 
-REGISTER_XLA_OP("Gather", GatherOp);
-
-REGISTER_XLA_KERNEL(DEVICE_CPU_XLA_JIT,
-                    Name("Gather")
-                        .TypeConstraint("Tparams", DT_FLOAT)
-                        .TypeConstraint("Tindices", {DT_INT32, DT_INT64}));
+REGISTER_XLA_OP(Name("Gather")
+                    .TypeConstraint("Tparams", DT_FLOAT)
+                    .Device(DEVICE_CPU_XLA_JIT),
+                GatherOp);
 
 }  // namespace
 }  // namespace tensorflow

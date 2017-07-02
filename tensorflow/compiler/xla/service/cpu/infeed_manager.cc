@@ -26,7 +26,7 @@ InfeedBuffer::~InfeedBuffer() = default;
 InfeedManager::InfeedManager() : current_buffer_(nullptr) {}
 
 void InfeedManager::Reset() {
-  std::unique_lock<std::mutex> l(mu_);
+  tensorflow::mutex_lock l(mu_);
   CHECK(!current_buffer_);
   for (auto buffer : enqueued_buffer_) {
     buffer->Done();
@@ -34,10 +34,12 @@ void InfeedManager::Reset() {
   enqueued_buffer_.clear();
 }
 
-void InfeedManager::EnqueueBuffer(InfeedBuffer* buffer) {
-  std::unique_lock<std::mutex> l(mu_);
+void InfeedManager::EnqueueBuffers(const std::vector<InfeedBuffer*>& buffers) {
+  tensorflow::mutex_lock l(mu_);
   bool was_empty = enqueued_buffer_.empty();
-  enqueued_buffer_.push_back(buffer);
+  for (InfeedBuffer* b : buffers) {
+    enqueued_buffer_.push_back(b);
+  }
   if (was_empty) {
     // This has the potential to suffer from the notified thread
     // immediately trying and failing to acquire mu_, but seems
@@ -48,7 +50,7 @@ void InfeedManager::EnqueueBuffer(InfeedBuffer* buffer) {
 }
 
 InfeedBuffer* InfeedManager::BlockingDequeueBuffer() {
-  std::unique_lock<std::mutex> l(mu_);
+  tensorflow::mutex_lock l(mu_);
   while (enqueued_buffer_.empty()) {
     cv_.wait(l);
   }
@@ -59,7 +61,7 @@ InfeedBuffer* InfeedManager::BlockingDequeueBuffer() {
 }
 
 void InfeedManager::ReleaseCurrentBuffer(int32 length, void* data) {
-  std::unique_lock<std::mutex> l(mu_);
+  tensorflow::mutex_lock l(mu_);
   CHECK(current_buffer_);
   CHECK_EQ(length, current_buffer_->length());
   CHECK_EQ(data, current_buffer_->data());

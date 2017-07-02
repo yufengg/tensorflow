@@ -23,12 +23,12 @@ package(
 cc_library(
     name = "xla_compiler",
     srcs = [
-        "op_registrations.cc",
         "xla_compilation_device.cc",
         "xla_compiler.cc",
         "xla_context.cc",
         "xla_helpers.cc",
         "xla_op_kernel.cc",
+        "xla_op_registry.cc",
     ],
     hdrs = [
         "xla_compilation_device.h",
@@ -36,18 +36,22 @@ cc_library(
         "xla_context.h",
         "xla_helpers.h",
         "xla_op_kernel.h",
+        "xla_op_registry.h",
     ],
+    visibility = [":friends"],
     deps = [
         ":common",
         ":dump_graph",
+        ":functionalize_control_flow",
         "//tensorflow/compiler/xla:literal_util",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:statusor",
-        "//tensorflow/compiler/xla/client",
+        "//tensorflow/compiler/xla:types",
+        "//tensorflow/compiler/xla:xla_data_proto",
         "//tensorflow/compiler/xla/client:client_library",
+        "//tensorflow/compiler/xla/client:computation",
         "//tensorflow/compiler/xla/client:computation_builder",
         "//tensorflow/compiler/xla/client:local_client",
-        "//tensorflow/compiler/xla/service:cpu_plugin",
         "//tensorflow/core:core_cpu",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:framework",
@@ -55,8 +59,6 @@ cc_library(
         "//tensorflow/core:lib_internal",
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/core:stream_executor_no_cuda",
-        "//tensorflow/core:tensorflow_opensource",
-        "//tensorflow/core/kernels:cwise_op",
     ],
     alwayslink = 1,
 )
@@ -91,6 +93,7 @@ cc_library(
 
 cc_test(
     name = "xla_compiler_test",
+    size = "small",
     srcs = ["xla_compiler_test.cc"],
     deps = [
         ":xla_compiler",
@@ -104,6 +107,7 @@ cc_test(
         "//tensorflow/compiler/xla/tests:literal_test_util",
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:framework",
+        "//tensorflow/core:tensor_testutil",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
     ],
@@ -111,6 +115,7 @@ cc_test(
 
 cc_test(
     name = "str_util_test",
+    size = "small",
     srcs = [
         "str_util_test.cc",
     ],
@@ -124,6 +129,7 @@ cc_test(
 
 cc_test(
     name = "literal_util_test",
+    size = "small",
     srcs = [
         "literal_util_test.cc",
     ],
@@ -147,7 +153,6 @@ cc_library(
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:lib_internal",
-        "//tensorflow/core:protos_all_cc",
     ],
 )
 
@@ -160,13 +165,10 @@ cc_test(
         "//tensorflow/cc:cc_ops",
         "//tensorflow/cc:function_ops",
         "//tensorflow/cc:ops",
-        "//tensorflow/core:core_cpu",
         "//tensorflow/core:core_cpu_internal",
-        "//tensorflow/core:framework",
         "//tensorflow/core:ops",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
-        "//tensorflow/core:testlib",
     ],
 )
 
@@ -193,6 +195,59 @@ cc_library(
         "//tensorflow/core:core_cpu_internal",
         "//tensorflow/core:framework",
         "//tensorflow/core:framework_internal",
+        "//tensorflow/core:lib",
+        "//tensorflow/core:protos_all_cc",
+    ],
+)
+
+cc_library(
+    name = "functionalize_control_flow",
+    srcs = ["functionalize_control_flow.cc"],
+    hdrs = ["functionalize_control_flow.h"],
+    deps = [
+        "//tensorflow/compiler/jit:graph_to_functiondef",
+        "//tensorflow/compiler/tf2xla:dump_graph",
+        "//tensorflow/compiler/tf2xla/ops:functional_ops",
+        "//tensorflow/compiler/xla:status_macros",
+        "//tensorflow/compiler/xla:util",
+        "//tensorflow/core:core_cpu",
+        "//tensorflow/core:core_cpu_internal",
+        "//tensorflow/core:framework",
+    ],
+)
+
+cc_test(
+    name = "functionalize_control_flow_test",
+    srcs = ["functionalize_control_flow_test.cc"],
+    deps = [
+        ":functionalize_control_flow",
+        ":test_util",
+        "//tensorflow/cc:cc_ops",
+        "//tensorflow/cc:cc_ops_internal",
+        "//tensorflow/cc:function_ops",
+        "//tensorflow/cc:ops",
+        "//tensorflow/cc:resource_variable_ops",
+        "//tensorflow/compiler/tf2xla/cc:functional_ops",
+        "//tensorflow/compiler/xla:status_macros",
+        "//tensorflow/core:core_cpu",
+        "//tensorflow/core:framework",
+        "//tensorflow/core:framework_internal",
+        "//tensorflow/core:ops",
+        "//tensorflow/core:resource_variable_ops_op_lib",
+        "//tensorflow/core:test",
+        "//tensorflow/core:test_main",
+    ],
+)
+
+cc_library(
+    name = "test_util",
+    testonly = 1,
+    srcs = ["test_util.cc"],
+    hdrs = ["test_util.h"],
+    deps = [
+        "//tensorflow/compiler/xla:status_macros",
+        "//tensorflow/core:core_cpu",
+        "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
     ],

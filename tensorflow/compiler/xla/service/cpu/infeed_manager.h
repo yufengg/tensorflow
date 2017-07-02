@@ -20,13 +20,11 @@ limitations under the License.
 #ifndef TENSORFLOW_COMPILER_XLA_SERVICE_CPU_INFEED_MANAGER_H_
 #define TENSORFLOW_COMPILER_XLA_SERVICE_CPU_INFEED_MANAGER_H_
 
-// TODO(misard) Adding NOLINT because as soon as XLA is
-// open-sourced this will use the tensorflow wrapper classes.
-#include <condition_variable>  // NOLINT(build/c++11)
 #include <deque>
-#include <mutex>  // NOLINT(build/c++11)
+#include <vector>
 
 #include "tensorflow/compiler/xla/types.h"
+#include "tensorflow/core/platform/mutex.h"
 
 namespace xla {
 namespace cpu {
@@ -55,11 +53,12 @@ class InfeedManager {
   // condition is to call Reset when no computation is taking place.
   void Reset();
 
-  // Adds buffer to the infeed queue. buffer->Done will be called when
-  // the buffer will no longer be accessed by the InfeedManager,
-  // either as a result of a call to Reset or because the runtime has
-  // dequeued and used the buffer.
-  void EnqueueBuffer(InfeedBuffer* buffer);
+  // Adds a set of buffers to the infeed queue
+  // atomically. buffer->Done will be called when the buffer will no
+  // longer be accessed by the InfeedManager, either as a result of a
+  // call to Reset or because the runtime has dequeued and used the
+  // buffer.
+  void EnqueueBuffers(const std::vector<InfeedBuffer*>& buffers);
 
   // Blocks until the infeed queue is non-empty, then returns the
   // buffer at the head of the queue. Sets the current buffer to be
@@ -76,10 +75,10 @@ class InfeedManager {
   void ReleaseCurrentBuffer(int32 length, void* data);
 
  private:
-  std::mutex mu_;
+  tensorflow::mutex mu_;
   // Condition variable that is signaled every time a buffer is
   // enqueued to an empty queue.
-  std::condition_variable cv_;
+  tensorflow::condition_variable cv_;
   // InfeedBuffer* queue contents are not owned, but buffer->Done must
   // be called when the buffer is no longer needed by the runtime.
   std::deque<InfeedBuffer*> enqueued_buffer_;

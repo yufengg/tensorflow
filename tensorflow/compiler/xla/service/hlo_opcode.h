@@ -30,6 +30,7 @@ namespace xla {
 enum class HloOpcode {
   kAbs,
   kAdd,
+  kBatchNormTraining,
   kBitcast,
   kBroadcast,
   kCall,
@@ -40,6 +41,7 @@ enum class HloOpcode {
   kConvert,
   kConvolution,
   kCopy,
+  kCos,
   kCrossReplicaSum,
   kCustomCall,
   kDivide,
@@ -55,6 +57,7 @@ enum class HloOpcode {
   kGt,
   kIndex,
   kInfeed,
+  kIsFinite,
   kLe,
   kLog,
   kLogicalAnd,
@@ -67,11 +70,13 @@ enum class HloOpcode {
   kMultiply,
   kNe,
   kNegate,
+  kOutfeed,
   kPad,
   kParameter,
   kPower,
   kRecv,
   kReduce,
+  kReducePrecision,
   kReduceWindow,
   kRemainder,
   kReshape,
@@ -101,6 +106,9 @@ inline std::ostream& operator<<(std::ostream& os, HloOpcode opcode) {
 
 // Returns true iff the given opcode is a comparison operation.
 bool HloOpcodeIsComparison(HloOpcode opcode);
+
+// Returns true iff the given opcode has variadic operands.
+bool HloOpcodeIsVariadic(HloOpcode opcode);
 
 }  // namespace xla
 
